@@ -90,7 +90,7 @@ struct GitHubAPI {
         req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         GitHubAPI.logger.info("➡️ Request: \(req.httpMethod ?? "GET") \(req.url?.absoluteString ?? "nil")")
         if let headers = req.allHTTPHeaderFields {
-            GitHubAPI.logger.debug("Headers: \(String(describing: headers))")
+            GitHubAPI.logger.debug("Headers: \(String(describing: headers.redactingSensitiveValues()))")
         }
         return req
     }
@@ -147,6 +147,20 @@ struct GitHubAPI {
         catch {
             GitHubAPI.logger.error("Decoding repos failed: \(String(describing: error))")
             throw APIError.decoding(error)
+        }
+    }
+}
+
+private extension [String: String] {
+    func redactingSensitiveValues() -> [String: String] {
+        mapValues { value in
+            if value.hasPrefix("token ") {
+                let components = value.split(separator: " ", maxSplits: 1)
+                if let secret = components.last {
+                    return "\(components[0]) \(secret.prefix(6))…\(String(repeating: "•", count: 4))"
+                }
+            }
+            return value
         }
     }
 }
