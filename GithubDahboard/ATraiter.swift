@@ -101,6 +101,8 @@ struct ATraiterNode: Codable {
     let repository: ATraiterRepository?
     let commits: ATraiterCommits?
     let author: ATraiterAuthor?
+    let comments: ATraiterComments?
+    let timelineItems: ATraiterTimeline?
 }
 
 struct ATraiterAuthor: Codable {
@@ -125,6 +127,32 @@ struct ATraiterCommit: Codable {
 
 struct ATraiterStatusCheckRollup: Codable {
     let state: String?
+}
+
+struct ATraiterComments: Codable {
+    let nodes: [ATraiterComment?]?
+}
+
+struct ATraiterComment: Codable {
+    let author: ATraiterAuthor?
+    let body: String?
+    let createdAt: String?
+}
+
+struct ATraiterTimeline: Codable {
+    let nodes: [ATraiterTimelineNode?]?
+}
+
+struct ATraiterTimelineNode: Codable {
+    let source: ATraiterReferencedPullRequest?
+}
+
+struct ATraiterReferencedPullRequest: Codable {
+    let number: Int?
+    let url: URL?
+    let isDraft: Bool?
+    let state: String?
+    let commits: ATraiterCommits?
 }
 
 struct ATraiterPullRequest: Identifiable {
@@ -164,11 +192,15 @@ struct ATraiterPullRequest: Identifiable {
 }
 
 struct ATraiterIssue: Identifiable {
+    static let agentLogin = "echo-scribe"
+
     let number: Int
     let title: String
     let url: URL
     let repository: String
     let updatedAt: String
+    let agentStatus: AgentStatus?
+    private let reportPosted: Bool
 
     var id: String { "\(repository)#\(number)" }
 
@@ -182,7 +214,48 @@ struct ATraiterIssue: Identifiable {
         self.url = url
         self.repository = repository
         self.updatedAt = node.updatedAt ?? ""
+        let comments = node.comments?.nodes?.compactMap { $0 } ?? []
+        let references = node.timelineItems?.nodes?.compactMap { $0?.source }.filter { $0.number != nil } ?? []
+        self.reportPosted = comments.contains {
+            $0.author?.login == Self.agentLogin && ($0.body?.hasPrefix("Conforme") ?? false)
+        }
+        if node.comments == nil && node.timelineItems == nil {
+            self.agentStatus = nil
+        } else if let pullRequest = references.max(by: { ($0.number ?? 0) < ($1.number ?? 0) }),
+                  pullRequest.state == "MERGED",
+                  let number = pullRequest.number,
+                  let url = pullRequest.url {
+            self.agentStatus = .merged(number: number, url: url)
+        } else if let pullRequest = references.max(by: { ($0.number ?? 0) < ($1.number ?? 0) }),
+                  pullRequest.state == "OPEN",
+                  let number = pullRequest.number,
+                  let url = pullRequest.url {
+            self.agentStatus = .pullRequest(
+                number: number,
+                url: url,
+                isDraft: pullRequest.isDraft ?? false,
+                ciState: pullRequest.commits?.nodes?.first??.commit?.statusCheckRollup?.state
+            )
+        } else if comments.contains(where: { $0.author?.login == Self.agentLogin && ($0.body?.hasPrefix("Conforme") ?? false) }) {
+            self.agentStatus = .reportPosted
+        } else if comments.contains(where: { $0.author?.login == Self.agentLogin && ($0.body?.hasPrefix("Pris en charge") ?? false) }) {
+            self.agentStatus = .inProgress
+        } else {
+            self.agentStatus = .toDo
+        }
     }
+
+    var hasReport: Bool {
+        reportPosted
+    }
+}
+
+enum AgentStatus: Equatable {
+    case toDo
+    case inProgress
+    case pullRequest(number: Int, url: URL, isDraft: Bool, ciState: String?)
+    case merged(number: Int, url: URL)
+    case reportPosted
 }
 
 enum ATraiterQuery {
@@ -201,7 +274,24 @@ enum ATraiterQuery {
         }
       }
       bus: search(query: $bus, type: ISSUE, first: 50) {
-        nodes { ... on Issue { number title url updatedAt repository { nameWithOwner } } }
+        nodes {
+          ... on Issue {
+            number title url updatedAt repository { nameWithOwner }
+            comments(last: 20) { nodes { author { login } body createdAt } }
+            timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 10) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  source {
+                    ... on PullRequest {
+                      number url isDraft state
+                      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
       mine: search(query: $mine, type: ISSUE, first: 50) {
         nodes { ... on Issue { number title url updatedAt repository { nameWithOwner } } }
