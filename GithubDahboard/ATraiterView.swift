@@ -82,7 +82,6 @@ struct ATraiterView: View {
             .foregroundStyle(.secondary)
     }
 
-    @ViewBuilder
     private func ciLabel(for state: String?) -> some View {
         let icon: String
         let color: Color
