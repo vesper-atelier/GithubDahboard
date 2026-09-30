@@ -219,7 +219,7 @@ struct ATraiterIssue: Identifiable {
         self.reportPosted = comments.contains {
             $0.author?.login == Self.agentLogin && ($0.body?.hasPrefix("Conforme") ?? false)
         }
-        if comments.isEmpty && references.isEmpty {
+        if node.comments == nil && node.timelineItems == nil {
             self.agentStatus = nil
         } else if let pullRequest = references.max(by: { ($0.number ?? 0) < ($1.number ?? 0) }),
                   pullRequest.state == "MERGED",
