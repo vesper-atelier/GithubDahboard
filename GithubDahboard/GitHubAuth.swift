@@ -8,7 +8,7 @@ struct GitHubSession: Codable {
 }
 
 enum GitHubAuth {
-    static let clientID = "A_RENSEIGNER"
+    static let clientID = "Iv23libKhgStbgLX8pSG"
     static let sessionAccount = "github_session"
     static var isConfigured: Bool { clientID != "A_RENSEIGNER" }
 

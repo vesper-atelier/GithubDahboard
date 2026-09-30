@@ -57,6 +57,9 @@ final class GitHubViewModel {
         } catch is CancellationError {
             deviceCode = nil
             verificationURI = nil
+        } catch let error as URLError where error.code == .cancelled {
+            deviceCode = nil
+            verificationURI = nil
         } catch {
             deviceCode = nil
             verificationURI = nil
