@@ -27,6 +27,7 @@ final class GitHubViewModel {
     var token: String = ""
     var user: GitHubUser?
     var repos: [GitHubRepo] = []
+    var aTraiter: ATraiterData?
     var isLoading: Bool = false
     var errorMessage: String?
     
@@ -44,7 +45,7 @@ final class GitHubViewModel {
             try? KeychainStorage.saveToken(token)
             let user = try await GitHubAPI(token: token).fetchAuthenticatedUser()
             self.user = user
-            self.repos = try await GitHubAPI(token: token).fetchUserRepos(login: user.login)
+            self.aTraiter = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
         } catch {
             self.errorMessage = (error as? GitHubAPI.APIError)?.localizedDescription ?? error.localizedDescription
         }
@@ -53,6 +54,7 @@ final class GitHubViewModel {
     func logout() {
         user = nil
         repos = []
+        aTraiter = nil
         errorMessage = nil
         token = ""
         try? KeychainStorage.deleteToken()
@@ -66,12 +68,14 @@ struct GitHubAPI {
         case missingToken
         case badStatus(Int)
         case decoding(Error)
+        case graphQL(String)
 
         var errorDescription: String? {
             switch self {
             case .missingToken: return "Token manquant."
             case .badStatus(let code): return "Réponse invalide du serveur (\(code))."
             case .decoding(let err): return "Erreur de décodage: \(err.localizedDescription)"
+            case .graphQL(let message): return message
             }
         }
     }
@@ -146,6 +150,35 @@ struct GitHubAPI {
         do { return try JSONDecoder().decode([GitHubRepo].self, from: data) }
         catch {
             GitHubAPI.logger.error("Decoding repos failed: \(String(describing: error))")
+            throw APIError.decoding(error)
+        }
+    }
+
+    func fetchATraiter(login: String) async throws -> ATraiterData {
+        var req = try request(path: "/graphql")
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(ATraiterRequest(
+            query: ATraiterQuery.document,
+            variables: ATraiterQuery.variables(for: login)
+        ))
+        let (data, resp) = try await dataWithRetry(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.badStatus(http.statusCode)
+        }
+        do {
+            let response = try JSONDecoder().decode(ATraiterResponse.self, from: data)
+            if let message = response.errors?.first?.message {
+                throw APIError.graphQL(message)
+            }
+            guard let result = response.data else {
+                throw APIError.graphQL("Réponse GraphQL vide.")
+            }
+            return result
+        } catch let error as APIError {
+            throw error
+        } catch {
             throw APIError.decoding(error)
         }
     }

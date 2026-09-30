@@ -21,6 +21,14 @@ struct ContentView: View {
             .navigationTitle("GitHub Dashboard")
             .toolbar {
                 if viewModel.user != nil {
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            Task { await viewModel.loadAuthenticatedUser() }
+                        } label: {
+                            Label("Rafraîchir", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(viewModel.isLoading)
+                    }
                     #if os(macOS)
                     ToolbarItem(placement: .automatic) {
                         Button(role: .destructive) {
@@ -121,43 +129,13 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                     }
 
-                    if !viewModel.repos.isEmpty {
-                        Text("Dépôts récents")
-                            .font(.headline)
-                        ForEach(viewModel.repos) { repo in
-                            Link(destination: repo.html_url) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(repo.name)
-                                            .font(.subheadline).bold()
-                                        Spacer()
-                                        Label("\(repo.stargazers_count)", systemImage: "star")
-                                            .labelStyle(.titleAndIcon)
-                                            .foregroundStyle(.yellow)
-                                    }
-                                    if let desc = repo.description, !desc.isEmpty {
-                                        Text(desc)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if let lang = repo.language {
-                                        Text(lang)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(.thinMaterial, in: Capsule())
-                                    }
-                                }
-                                .padding(.vertical, 8)
-                            }
-                            Divider()
-                        }
-                    } else if !viewModel.isLoading {
-                        ContentUnavailableView("Aucun dépôt", systemImage: "folder", description: Text("Appuyez sur Se connecter pour charger vos dépôts."))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                     ATraiterView(data: viewModel.aTraiter)
+                 }
+                 .frame(maxWidth: .infinity, alignment: .leading)
+             }
+             .refreshable {
+                 await viewModel.loadAuthenticatedUser()
+             }
         } else {
             ContentUnavailableView("Non connecté", systemImage: "person.crop.circle.badge.questionmark", description: Text("Saisissez votre token puis appuyez sur Se connecter."))
         }
