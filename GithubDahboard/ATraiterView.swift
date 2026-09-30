@@ -11,6 +11,9 @@ struct ATraiterView: View {
                     .foregroundStyle(.orange)
                     .font(.footnote)
             }
+            if let driftIssues = data?.driftIssues, !driftIssues.isEmpty {
+                issuesSection(title: "Dérive de l'infra", issues: driftIssues, icon: "exclamationmark.triangle.fill")
+            }
             pullRequestsSection
             issuesSection(title: "Bus echo-scribe", issues: data?.busIssues ?? [])
             issuesSection(title: "Assignées à moi", issues: data?.assignedIssues ?? [])
@@ -76,10 +79,14 @@ struct ATraiterView: View {
     }
 
     @ViewBuilder
-    private func issuesSection(title: String, issues: [ATraiterIssue]) -> some View {
+    private func issuesSection(title: String, issues: [ATraiterIssue], icon: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon).foregroundStyle(.red)
+                }
+                Text(title).font(.headline)
+            }
             if issues.isEmpty {
                 emptyMessage
             } else {

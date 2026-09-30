@@ -18,6 +18,8 @@ final class GitHubViewModel {
     var user: GitHubUser?
     var aTraiter: ATraiterData?
     var aTraiterWarning: String?
+    var inventaire: Inventaire?
+    var inventaireMessage: String?
     var isLoading: Bool = false
     var errorMessage: String?
     var deviceCode: String?
@@ -112,6 +114,18 @@ final class GitHubViewModel {
         let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
         self.aTraiter = result.data
         self.aTraiterWarning = result.warning
+        do {
+            inventaire = try await GitHubAPI(token: token).fetchInventaire()
+            if inventaire == nil {
+                inventaireMessage = "Aucun inventaire publié pour l'instant."
+            } else {
+                inventaireMessage = nil
+            }
+        } catch GitHubAPI.APIError.unauthorized {
+            throw GitHubAPI.APIError.unauthorized
+        } catch {
+            inventaireMessage = "Inventaire indisponible : \(error.localizedDescription)"
+        }
     }
 
     private func refresh(_ current: GitHubSession) async throws -> GitHubSession {
@@ -134,6 +148,8 @@ final class GitHubViewModel {
         user = nil
         aTraiter = nil
         aTraiterWarning = nil
+        inventaire = nil
+        inventaireMessage = nil
         errorMessage = nil
         session = nil
         try? KeychainStorage.delete(account: GitHubAuth.sessionAccount)
@@ -242,6 +258,22 @@ struct GitHubAPI {
         } catch {
             throw APIError.decoding(error)
         }
+    }
+
+    func fetchInventaire() async throws -> Inventaire? {
+        // The published inventory lives on the dedicated "ref" = "inventaire" branch.
+        var req = try request(path: "/repos/nhipster-com/platform-homelab/contents/inventaire.json", queryItems: [URLQueryItem(name: "ref", value: "inventaire")])
+        req.httpMethod = "GET"
+        req.setValue("application/vnd.github.raw+json", forHTTPHeaderField: "Accept")
+        let (data, resp) = try await dataWithRetry(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
+            if http.statusCode == 404 { return nil }
+            throw APIError.badStatus(http.statusCode)
+        }
+        do { return try JSONDecoder().decode(Inventaire.self, from: data) }
+        catch { throw APIError.decoding(error) }
     }
 
     private func fetchOrganizations() async throws -> [String] {

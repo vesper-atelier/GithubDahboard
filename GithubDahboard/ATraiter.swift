@@ -38,6 +38,7 @@ struct ATraiterData: Codable {
     let prs: ATraiterSearch?
     let bus: ATraiterSearch?
     let mine: ATraiterSearch?
+    let derive: ATraiterSearch?
 
     var pullRequestsByRepository: [ATraiterPullRequestGroup] {
         let pullRequests = (prs?.nodes ?? []).compactMap(ATraiterPullRequest.init)
@@ -56,6 +57,10 @@ struct ATraiterData: Codable {
 
     var assignedIssues: [ATraiterIssue] {
         (mine?.nodes ?? []).compactMap(ATraiterIssue.init).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    var driftIssues: [ATraiterIssue] {
+        (derive?.nodes ?? []).compactMap(ATraiterIssue.init).sorted { $0.updatedAt > $1.updatedAt }
     }
 }
 
@@ -184,7 +189,7 @@ enum ATraiterQuery {
     static let organizationsDocument = "query { viewer { organizations(first: 100) { nodes { login } } } }"
 
     static let document = """
-    query ATraiter($prs: String!, $bus: String!, $mine: String!) {
+    query ATraiter($prs: String!, $bus: String!, $mine: String!, $derive: String!) {
       prs: search(query: $prs, type: ISSUE, first: 50) {
         nodes {
           ... on PullRequest {
@@ -201,6 +206,9 @@ enum ATraiterQuery {
       mine: search(query: $mine, type: ISSUE, first: 50) {
         nodes { ... on Issue { number title url updatedAt repository { nameWithOwner } } }
       }
+      derive: search(query: $derive, type: ISSUE, first: 20) {
+        nodes { ... on Issue { number title url updatedAt repository { nameWithOwner } } }
+      }
     }
     """
 
@@ -210,6 +218,7 @@ enum ATraiterQuery {
             "prs": "is:open is:pr archived:false user:\(login) \(orgs.map { "org:\($0)" }.joined(separator: " "))",
             "bus": "is:open is:issue repo:vesper-atelier/taches label:pour:echo-scribe",
             "mine": "is:open is:issue archived:false assignee:\(login)"
+            , "derive": "is:open is:issue repo:nhipster-com/platform-homelab label:derive-infra"
         ]
     }
 }

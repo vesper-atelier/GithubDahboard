@@ -92,51 +92,63 @@ struct ContentView: View {
     @ViewBuilder
     private var contentSection: some View {
         if let user = viewModel.user {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .center, spacing: 12) {
-                        AsyncImage(url: user.avatar_url) { phase in
-                            switch phase {
-                            case .empty: ProgressView()
-                            case .success(let image): image.resizable().scaledToFill()
-                            case .failure: Image(systemName: "person.crop.circle.fill")
-                                    .resizable().scaledToFit()
-                            @unknown default: EmptyView()
-                            }
-                        }
-                        .frame(width: 64, height: 64)
-                        .clipShape(Circle())
+            TabView {
+                Tab("À traiter", systemImage: "tray.full") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack(alignment: .center, spacing: 12) {
+                                AsyncImage(url: user.avatar_url) { phase in
+                                    switch phase {
+                                    case .empty: ProgressView()
+                                    case .success(let image): image.resizable().scaledToFill()
+                                    case .failure: Image(systemName: "person.crop.circle.fill")
+                                            .resizable().scaledToFit()
+                                    @unknown default: EmptyView()
+                                    }
+                                }
+                                .frame(width: 64, height: 64)
+                                .clipShape(Circle())
 
-                        VStack(alignment: .leading) {
-                            Text(user.name ?? user.login)
-                                .font(.title2).bold()
-                            Text("@\(user.login)")
-                                .foregroundStyle(.secondary)
-                            if let bio = user.bio, !bio.isEmpty {
-                                Text(bio)
-                                    .font(.callout)
+                                VStack(alignment: .leading) {
+                                    Text(user.name ?? user.login)
+                                        .font(.title2).bold()
+                                    Text("@\(user.login)")
+                                        .foregroundStyle(.secondary)
+                                    if let bio = user.bio, !bio.isEmpty {
+                                        Text(bio)
+                                            .font(.callout)
+                                    }
+                                    HStack(spacing: 12) {
+                                        Label("\(user.followers ?? 0) followers", systemImage: "person.2")
+                                        Label("\(user.public_repos ?? 0) repos", systemImage: "folder")
+                                    }
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            HStack(spacing: 12) {
-                                Label("\(user.followers ?? 0) followers", systemImage: "person.2")
-                                Label("\(user.public_repos ?? 0) repos", systemImage: "folder")
+                            if let error = viewModel.errorMessage {
+                                Text(error)
+                                    .foregroundStyle(.red)
+                                    .font(.footnote)
                             }
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            ATraiterView(data: viewModel.aTraiter, warning: viewModel.aTraiterWarning)
                         }
-                        Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-
-                    if let error = viewModel.errorMessage {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
+                    .refreshable {
+                        await viewModel.loadAuthenticatedUser()
                     }
-                    ATraiterView(data: viewModel.aTraiter, warning: viewModel.aTraiterWarning)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .refreshable {
-                await viewModel.loadAuthenticatedUser()
+                Tab("Infra", systemImage: "server.rack") {
+                    ScrollView {
+                        InfraView(inventaire: viewModel.inventaire, message: viewModel.inventaireMessage)
+                            .padding()
+                    }
+                    .refreshable {
+                        await viewModel.loadAuthenticatedUser()
+                    }
+                }
             }
         } else {
             ContentUnavailableView("Non connecté", systemImage: "person.crop.circle.badge.questionmark", description: Text("Connectez-vous avec GitHub pour voir vos PR et vos tâches."))
