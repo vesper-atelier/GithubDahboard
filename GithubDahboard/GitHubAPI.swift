@@ -15,17 +15,63 @@ struct GitHubUser: Codable, Identifiable {
 @MainActor
 @Observable
 final class GitHubViewModel {
-    var token: String = ""
     var user: GitHubUser?
     var aTraiter: ATraiterData?
     var aTraiterWarning: String?
     var isLoading: Bool = false
     var errorMessage: String?
-    
+    var deviceCode: String?
+    var verificationURI: URL?
+    private var session: GitHubSession?
+    private var refreshTask: Task<GitHubSession, Error>?
+    private var signInTask: Task<GitHubSession, Error>?
+
     init() {
-        if let saved = try? KeychainStorage.loadToken() {
-            self.token = saved
+        session = try? KeychainStorage.load(account: GitHubAuth.sessionAccount).flatMap { try JSONDecoder().decode(GitHubSession.self, from: $0) }
+    }
+
+    func start() async {
+        guard session != nil else { return }
+        await loadAuthenticatedUser()
+    }
+
+    func signIn() async {
+        guard GitHubAuth.isConfigured else {
+            errorMessage = "Identifiant client de la GitHub App non renseigné."
+            return
         }
+        errorMessage = nil
+        do {
+            let task = Task { try await GitHubAuth.authorize { [weak self] code, uri in
+                self?.deviceCode = code
+                self?.verificationURI = uri
+            } }
+            signInTask = task
+            let authorization = try await task.value
+            signInTask = nil
+            session = authorization
+            try saveSession(authorization)
+            deviceCode = nil
+            verificationURI = nil
+            await loadAuthenticatedUser()
+        } catch is CancellationError {
+            deviceCode = nil
+            verificationURI = nil
+        } catch let error as URLError where error.code == .cancelled {
+            deviceCode = nil
+            verificationURI = nil
+        } catch {
+            deviceCode = nil
+            verificationURI = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func cancelSignIn() {
+        signInTask?.cancel()
+        signInTask = nil
+        deviceCode = nil
+        verificationURI = nil
     }
 
     func loadAuthenticatedUser() async {
@@ -33,16 +79,55 @@ final class GitHubViewModel {
         aTraiterWarning = nil
         isLoading = true
         defer { isLoading = false }
+        var refreshFailed = false
         do {
-            try? KeychainStorage.saveToken(token)
-            let user = try await GitHubAPI(token: token).fetchAuthenticatedUser()
-            self.user = user
-            let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
-            self.aTraiter = result.data
-            self.aTraiterWarning = result.warning
+            guard var activeSession = session else { return }
+            if activeSession.accessExpiresAt.timeIntervalSinceNow < 300 {
+                refreshFailed = true
+                activeSession = try await refresh(activeSession)
+                refreshFailed = false
+            }
+            do {
+                try await loadData(with: activeSession.accessToken)
+            } catch GitHubAPI.APIError.unauthorized {
+                refreshFailed = true
+                activeSession = try await refresh(activeSession)
+                refreshFailed = false
+                try await loadData(with: activeSession.accessToken)
+            }
         } catch {
-            self.errorMessage = (error as? GitHubAPI.APIError)?.localizedDescription ?? error.localizedDescription
+            if refreshFailed, error is GitHubAuth.AuthError {
+                session = nil
+                try? KeychainStorage.delete(account: GitHubAuth.sessionAccount)
+                errorMessage = "Session expirée, reconnectez-vous."
+            } else {
+                errorMessage = (error as? GitHubAPI.APIError)?.localizedDescription ?? error.localizedDescription
+            }
         }
+    }
+
+    private func loadData(with token: String) async throws {
+        let user = try await GitHubAPI(token: token).fetchAuthenticatedUser()
+        self.user = user
+        let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
+        self.aTraiter = result.data
+        self.aTraiterWarning = result.warning
+    }
+
+    private func refresh(_ current: GitHubSession) async throws -> GitHubSession {
+        if let refreshTask { return try await refreshTask.value }
+        let task = Task { try await GitHubAuth.refresh(current) }
+        refreshTask = task
+        defer { refreshTask = nil }
+        let updated = try await task.value
+        session = updated
+        try saveSession(updated)
+        return updated
+    }
+
+    private func saveSession(_ value: GitHubSession) throws {
+        try KeychainStorage.save(JSONEncoder().encode(value), account: GitHubAuth.sessionAccount)
+        try KeychainStorage.delete(account: "github_token")
     }
     
     func logout() {
@@ -50,8 +135,8 @@ final class GitHubViewModel {
         aTraiter = nil
         aTraiterWarning = nil
         errorMessage = nil
-        token = ""
-        try? KeychainStorage.deleteToken()
+        session = nil
+        try? KeychainStorage.delete(account: GitHubAuth.sessionAccount)
     }
 }
 
@@ -60,6 +145,7 @@ struct GitHubAPI {
 
     enum APIError: LocalizedError {
         case missingToken
+        case unauthorized
         case badStatus(Int)
         case decoding(Error)
         case graphQL(String)
@@ -67,6 +153,7 @@ struct GitHubAPI {
         var errorDescription: String? {
             switch self {
             case .missingToken: return "Token manquant."
+            case .unauthorized: return "Session expirée, reconnectez-vous."
             case .badStatus(let code): return "Réponse invalide du serveur (\(code))."
             case .decoding(let err): return "Erreur de décodage: \(err.localizedDescription)"
             case .graphQL(let message): return message
@@ -84,7 +171,7 @@ struct GitHubAPI {
         components.queryItems = queryItems
         var req = URLRequest(url: components.url!)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.setValue("token \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         GitHubAPI.logger.info("➡️ Request: \(req.httpMethod ?? "GET") \(req.url?.absoluteString ?? "nil")")
         if let headers = req.allHTTPHeaderFields {
@@ -118,6 +205,7 @@ struct GitHubAPI {
         GitHubAPI.logger.info("⬅️ /user response received")
         guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
             GitHubAPI.logger.error("/user bad status: \(http.statusCode)")
             throw APIError.badStatus(http.statusCode)
         }
@@ -140,6 +228,7 @@ struct GitHubAPI {
         let (data, resp) = try await dataWithRetry(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
             throw APIError.badStatus(http.statusCode)
         }
         do {
@@ -165,7 +254,10 @@ struct GitHubAPI {
         ))
         let (data, resp) = try await dataWithRetry(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
-        guard (200..<300).contains(http.statusCode) else { throw APIError.badStatus(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
+            throw APIError.badStatus(http.statusCode)
+        }
         do {
             return try JSONDecoder().decode(ATraiterOrganizationsResponse.self, from: data)
                 .data?.viewer.organizations.nodes.map(\.login) ?? []
@@ -178,7 +270,7 @@ struct GitHubAPI {
 private extension [String: String] {
     func redactingSensitiveValues() -> [String: String] {
         mapValues { value in
-            if value.hasPrefix("token ") {
+            if value.hasPrefix("token ") || value.hasPrefix("Bearer ") {
                 let components = value.split(separator: " ", maxSplits: 1)
                 if let secret = components.last {
                     return "\(components[0]) \(secret.prefix(6))…\(String(repeating: "•", count: 4))"

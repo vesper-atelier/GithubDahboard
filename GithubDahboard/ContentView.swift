@@ -6,6 +6,11 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct ContentView: View {
     @State private var viewModel = GitHubViewModel()
@@ -14,13 +19,14 @@ struct ContentView: View {
         NavigationStack {
             VStack(spacing: 16) {
                 if viewModel.user == nil {
-                    tokenSection
+                    authSection
                     Divider()
                 }
                 contentSection
             }
             .padding()
             .navigationTitle("GitHub Dashboard")
+            .task { await viewModel.start() }
             .toolbar {
                 if viewModel.user != nil {
                     ToolbarItem(placement: .automatic) {
@@ -53,38 +59,27 @@ struct ContentView: View {
         }
     }
 
-    private var tokenSection: some View {
+    private var authSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Token GitHub (pat_...)")
-                .font(.headline)
-            HStack {
-                SecureField("Collez votre token personnel", text: $viewModel.token)
-                Button {
-                    viewModel.token = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+            if let code = viewModel.deviceCode, let uri = viewModel.verificationURI {
+                Text(code)
+                    .font(.title)
+                    .monospaced()
+                    .textSelection(.enabled)
+                Button("Copier le code") { copy(code) }
+                Link("Ouvrir github.com/login/device", destination: uri)
+                HStack {
+                    ProgressView()
+                    Text("En attente de validation…")
+                    Button("Annuler") { viewModel.cancelSignIn() }
                 }
-                .accessibilityLabel("Effacer le token")
-            }
-            HStack {
+            } else {
                 Button {
-                    Task { await viewModel.loadAuthenticatedUser() }
+                    Task { await viewModel.signIn() }
                 } label: {
-                    Label("Se connecter", systemImage: "bolt.horizontal.circle")
+                    Label("Se connecter avec GitHub", systemImage: "person.badge.key")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                if viewModel.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-            if !viewModel.token.isEmpty, viewModel.user == nil {
-                Text("Un token est présent (Keychain).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             if let error = viewModel.errorMessage {
                 Text(error)
@@ -131,6 +126,11 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                     }
 
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
                     ATraiterView(data: viewModel.aTraiter, warning: viewModel.aTraiterWarning)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,8 +139,17 @@ struct ContentView: View {
                 await viewModel.loadAuthenticatedUser()
             }
         } else {
-            ContentUnavailableView("Non connecté", systemImage: "person.crop.circle.badge.questionmark", description: Text("Saisissez votre token puis appuyez sur Se connecter."))
+            ContentUnavailableView("Non connecté", systemImage: "person.crop.circle.badge.questionmark", description: Text("Connectez-vous avec GitHub pour voir vos PR et vos tâches."))
         }
+    }
+
+    private func copy(_ code: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        #else
+        UIPasteboard.general.string = code
+        #endif
     }
 }
 

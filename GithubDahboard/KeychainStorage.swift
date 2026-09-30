@@ -3,11 +3,8 @@ import Security
 
 enum KeychainStorage {
     private static let service = "com.githubdashboard.app"
-    private static let account = "github_token"
 
-    static func saveToken(_ token: String) throws {
-        let data = Data(token.utf8)
-        // Delete existing item
+    static func save(_ data: Data, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -15,15 +12,14 @@ enum KeychainStorage {
         ]
         SecItemDelete(query as CFDictionary)
 
-        // Add new item
         var addQuery = query
         addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
 
-    static func loadToken() throws -> String? {
+    static func load(account: String) throws -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -37,10 +33,10 @@ enum KeychainStorage {
         guard status == errSecSuccess, let data = item as? Data else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
         }
-        return String(data: data, encoding: .utf8)
+        return data
     }
 
-    static func deleteToken() throws {
+    static func delete(account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
