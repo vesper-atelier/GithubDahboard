@@ -119,7 +119,7 @@ private enum InventairePreviewData {
         .init(adresse: "vm-a", nom: "runner", noeud: "pve-a", type: "vm", vmid: 200, hote: nil, ipv4: "192.168.1.11/24", coeurs: 4, memoireMo: 4096, disqueGo: 32, demarre: true, etiquettes: ["ci"]),
         .init(adresse: "ct-b", nom: "vault", noeud: "pve-b", type: "ct", vmid: 106, hote: "vault", ipv4: nil, coeurs: 1, memoireMo: 512, disqueGo: 4, demarre: false, etiquettes: nil)
     ])
-    static let derive = InventairePreviewData.make(status: "derive", machines: [
+    static let derive = InventairePreview.make(status: "derive", machines: [
         .init(adresse: "ct-a", nom: "forgejo", noeud: "pve-a", type: "ct", vmid: 105, hote: nil, ipv4: nil, coeurs: nil, memoireMo: nil, disqueGo: nil, demarre: true, etiquettes: nil)
     ], ecarts: [InventaireEcart(adresse: "ct-a", actions: ["update"])])
 }
