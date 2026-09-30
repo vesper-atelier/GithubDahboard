@@ -96,7 +96,7 @@ final class GitHubViewModel {
                 try await loadData(with: activeSession.accessToken)
             }
         } catch {
-            if refreshFailed {
+            if refreshFailed, error is GitHubAuth.AuthError {
                 session = nil
                 try? KeychainStorage.delete(account: GitHubAuth.sessionAccount)
                 errorMessage = "Session expirée, reconnectez-vous."
@@ -108,10 +108,10 @@ final class GitHubViewModel {
 
     private func loadData(with token: String) async throws {
         let user = try await GitHubAPI(token: token).fetchAuthenticatedUser()
-            self.user = user
-            let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
-            self.aTraiter = result.data
-            self.aTraiterWarning = result.warning
+        self.user = user
+        let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
+        self.aTraiter = result.data
+        self.aTraiterWarning = result.warning
     }
 
     private func refresh(_ current: GitHubSession) async throws -> GitHubSession {
