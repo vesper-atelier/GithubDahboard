@@ -91,7 +91,7 @@ struct ATraiterView: View {
         case "PENDING", "EXPECTED": (icon, color) = ("clock", .orange)
         default: (icon, color) = ("minus.circle", .gray)
         }
-        Image(systemName: icon)
+        return Image(systemName: icon)
             .foregroundStyle(color)
             .accessibilityLabel("État de la CI")
     }
