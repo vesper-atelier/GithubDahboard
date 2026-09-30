@@ -52,6 +52,7 @@ struct ATraiterView: View {
         }
     }
 
+    @ViewBuilder
     private func pullRequestRow(_ pullRequest: ATraiterPullRequest) -> some View {
         Link(destination: pullRequest.url) {
             VStack(alignment: .leading, spacing: 4) {
