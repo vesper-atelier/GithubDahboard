@@ -12,22 +12,13 @@ struct GitHubUser: Codable, Identifiable {
     let public_repos: Int?
 }
 
-struct GitHubRepo: Codable, Identifiable {
-    let id: Int
-    let name: String
-    let description: String?
-    let stargazers_count: Int
-    let language: String?
-    let html_url: URL
-}
-
 @MainActor
 @Observable
 final class GitHubViewModel {
     var token: String = ""
     var user: GitHubUser?
-    var repos: [GitHubRepo] = []
     var aTraiter: ATraiterData?
+    var aTraiterWarning: String?
     var isLoading: Bool = false
     var errorMessage: String?
     
@@ -39,13 +30,16 @@ final class GitHubViewModel {
 
     func loadAuthenticatedUser() async {
         errorMessage = nil
+        aTraiterWarning = nil
         isLoading = true
         defer { isLoading = false }
         do {
             try? KeychainStorage.saveToken(token)
             let user = try await GitHubAPI(token: token).fetchAuthenticatedUser()
             self.user = user
-            self.aTraiter = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
+            let result = try await GitHubAPI(token: token).fetchATraiter(login: user.login)
+            self.aTraiter = result.data
+            self.aTraiterWarning = result.warning
         } catch {
             self.errorMessage = (error as? GitHubAPI.APIError)?.localizedDescription ?? error.localizedDescription
         }
@@ -53,8 +47,8 @@ final class GitHubViewModel {
     
     func logout() {
         user = nil
-        repos = []
         aTraiter = nil
+        aTraiterWarning = nil
         errorMessage = nil
         token = ""
         try? KeychainStorage.deleteToken()
@@ -134,33 +128,14 @@ struct GitHubAPI {
         }
     }
 
-    func fetchUserRepos(login: String) async throws -> [GitHubRepo] {
-        var req = try request(path: "/users/\(login)/repos", queryItems: [
-            URLQueryItem(name: "sort", value: "updated"),
-            URLQueryItem(name: "per_page", value: "20")
-        ])
-        req.httpMethod = "GET"
-        let (data, resp) = try await dataWithRetry(for: req)
-        GitHubAPI.logger.info("⬅️ /users/\(login)/repos response received")
-        guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
-        guard (200..<300).contains(http.statusCode) else {
-            GitHubAPI.logger.error("/users/\(login)/repos bad status: \(http.statusCode)")
-            throw APIError.badStatus(http.statusCode)
-        }
-        do { return try JSONDecoder().decode([GitHubRepo].self, from: data) }
-        catch {
-            GitHubAPI.logger.error("Decoding repos failed: \(String(describing: error))")
-            throw APIError.decoding(error)
-        }
-    }
-
-    func fetchATraiter(login: String) async throws -> ATraiterData {
+    func fetchATraiter(login: String) async throws -> (data: ATraiterData, warning: String?) {
+        let organizations = try await fetchOrganizations()
         var req = try request(path: "/graphql")
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(ATraiterRequest(
             query: ATraiterQuery.document,
-            variables: ATraiterQuery.variables(for: login)
+            variables: ATraiterQuery.variables(for: login, organizations: organizations)
         ))
         let (data, resp) = try await dataWithRetry(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
@@ -169,15 +144,31 @@ struct GitHubAPI {
         }
         do {
             let response = try JSONDecoder().decode(ATraiterResponse.self, from: data)
-            if let message = response.errors?.first?.message {
-                throw APIError.graphQL(message)
-            }
             guard let result = response.data else {
-                throw APIError.graphQL("Réponse GraphQL vide.")
+                throw APIError.graphQL(response.errors?.first?.message ?? "Réponse GraphQL vide.")
             }
-            return result
+            return (result, response.errors?.first?.message)
         } catch let error as APIError {
             throw error
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    private func fetchOrganizations() async throws -> [String] {
+        var req = try request(path: "/graphql")
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(ATraiterRequest(
+            query: ATraiterQuery.organizationsDocument,
+            variables: [:]
+        ))
+        let (data, resp) = try await dataWithRetry(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw APIError.badStatus(-1) }
+        guard (200..<300).contains(http.statusCode) else { throw APIError.badStatus(http.statusCode) }
+        do {
+            return try JSONDecoder().decode(ATraiterOrganizationsResponse.self, from: data)
+                .data?.viewer.organizations.nodes.map(\.login) ?? []
         } catch {
             throw APIError.decoding(error)
         }

@@ -2,9 +2,15 @@ import SwiftUI
 
 struct ATraiterView: View {
     let data: ATraiterData?
+    let warning: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            if let warning {
+                Text(warning)
+                    .foregroundStyle(.orange)
+                    .font(.footnote)
+            }
             pullRequestsSection
             issuesSection(title: "Bus echo-scribe", issues: data?.busIssues ?? [])
             issuesSection(title: "Assignées à moi", issues: data?.assignedIssues ?? [])
@@ -23,26 +29,20 @@ struct ATraiterView: View {
                         Text(group.repository)
                             .font(.subheadline)
                             .bold()
-                        ForEach(group.pullRequests) { pullRequest in
-                            Link(destination: pullRequest.url) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("#\(pullRequest.number) \(pullRequest.title)")
-                                        .foregroundStyle(.primary)
-                                    HStack(spacing: 8) {
-                                        ciLabel(for: pullRequest.ciState)
-                                        reviewLabel(for: pullRequest.reviewDecision)
-                                        if pullRequest.isDraft {
-                                            Text("Brouillon")
-                                                .font(.caption)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(.thinMaterial, in: Capsule())
-                                        }
-                                    }
+                        ForEach(group.otherPullRequests) { pullRequest in
+                            pullRequestRow(pullRequest)
+                        }
+                        if !group.dependencyPullRequests.isEmpty {
+                            DisclosureGroup {
+                                ForEach(group.dependencyPullRequests) { pullRequest in
+                                    pullRequestRow(pullRequest)
                                 }
-                                .padding(.vertical, 6)
+                            } label: {
+                                HStack {
+                                    ciLabel(for: group.dependencyCIState)
+                                    Text("\(group.dependencyPullRequests.count) mises à jour de dépendances")
+                                }
                             }
-                            Divider()
                         }
                     }
                 }
@@ -50,6 +50,29 @@ struct ATraiterView: View {
                 emptyMessage
             }
         }
+    }
+
+    @ViewBuilder
+    private func pullRequestRow(_ pullRequest: ATraiterPullRequest) -> some View {
+        Link(destination: pullRequest.url) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("#\(pullRequest.number) \(pullRequest.title)")
+                    .foregroundStyle(.primary)
+                HStack(spacing: 8) {
+                    ciLabel(for: pullRequest.ciState)
+                    reviewLabel(for: pullRequest.reviewDecision)
+                    if pullRequest.isDraft {
+                        Text("Brouillon")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        Divider()
     }
 
     @ViewBuilder

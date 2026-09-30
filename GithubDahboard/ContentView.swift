@@ -13,8 +13,10 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                tokenSection
-                Divider()
+                if viewModel.user == nil {
+                    tokenSection
+                    Divider()
+                }
                 contentSection
             }
             .padding()
@@ -129,13 +131,13 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                     }
 
-                     ATraiterView(data: viewModel.aTraiter)
-                 }
-                 .frame(maxWidth: .infinity, alignment: .leading)
-             }
-             .refreshable {
-                 await viewModel.loadAuthenticatedUser()
-             }
+                    ATraiterView(data: viewModel.aTraiter, warning: viewModel.aTraiterWarning)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .refreshable {
+                await viewModel.loadAuthenticatedUser()
+            }
         } else {
             ContentUnavailableView("Non connecté", systemImage: "person.crop.circle.badge.questionmark", description: Text("Saisissez votre token puis appuyez sur Se connecter."))
         }
