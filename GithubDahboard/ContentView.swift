@@ -126,6 +126,11 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                     }
 
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .font(.footnote)
+                    }
                     ATraiterView(data: viewModel.aTraiter, warning: viewModel.aTraiterWarning)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

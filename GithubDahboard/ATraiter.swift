@@ -107,7 +107,7 @@ struct ATraiterRepository: Codable {
 }
 
 struct ATraiterCommits: Codable {
-    let nodes: [ATraiterCommitNode]?
+    let nodes: [ATraiterCommitNode?]?
 }
 
 struct ATraiterCommitNode: Codable {
@@ -153,7 +153,7 @@ struct ATraiterPullRequest: Identifiable {
         self.updatedAt = node.updatedAt ?? ""
         self.isDraft = node.isDraft ?? false
         self.reviewDecision = node.reviewDecision
-        self.ciState = node.commits?.nodes?.first?.commit?.statusCheckRollup?.state
+        self.ciState = node.commits?.nodes?.first??.commit?.statusCheckRollup?.state
         self.authorLogin = node.author?.login
     }
 }
